@@ -36,9 +36,9 @@ def validate_port(ctx, param, port: str) -> str:
     if ports:
         for number in ports:
             if not in_valid_range(number):
-                raise click.BadParameter('Port must be int, int:int or int,int,int')
+                raise click.BadParameter('Port must be int or int:int or int,int,int')
         return ports
-    raise click.BadParameter('Port must be numeric or int:int or separated by comma')
+    raise click.BadParameter('Port must be int or int:int or int,int,int')
 
 
 def in_valid_range(port: int) -> bool:
@@ -78,12 +78,12 @@ def scan_port(target: str, protocol: str, port_number: int) -> None:
             )
         elif protocol == Protocol.UDP:
             sock.sendto(b'Hello', (target, port_number))
-            click.echo(f'[+] Sending UDP data to {port_number}')
+            click.echo(f'[?] Sending UDP data to {port_number}')
         sock.close()
 
     except Exception as e:
         click.echo(e, err=True)
-        print(f'[+] Port {port_number} is closed')
+        print(f'[-] Port {port_number} is closed')
 
 
 @click.command()
@@ -107,7 +107,7 @@ def scan_port(target: str, protocol: str, port_number: int) -> None:
     type=click.UNPROCESSED,
     callback=validate_port,
     prompt=True,
-    help='80 or 40000:50000',
+    help='80 or 80,443,22 or 40000:50000',
 )
 def run(target, proto, port):
     # handle ports
