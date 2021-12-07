@@ -1,8 +1,11 @@
 import socket
 import re
-from ipaddress import IPv4Address, AddressValueError
+from ipaddress import (
+    IPv4Address,
+    IPv4Network,
+    AddressValueError
+)
 
-from IPy import IP
 import click
 
 
@@ -15,13 +18,16 @@ PROTOCOL_SOCKETS = {
     'tcp': socket.SOCK_STREAM,
     'udp': socket.SOCK_DGRAM,
 }
-SOCKET_TIMEOUT = 2
+SOCKET_TIMEOUT = 0.5
 
 
 def validate_port(ctx, param, port: str) -> str:
-    if port.isnumeric():
+    if not port:
+        return None
+    if port.isdigit():
+        port = int(port)
         if in_valid_range(port):
-            return [int(port)]
+            return [port]
     regex = r'\d+:\d+'
     match = re.match(regex, port)
     ports = None
@@ -45,24 +51,26 @@ def in_valid_range(port: int) -> bool:
     return port in range(1, 65535)
 
 
-def validate_target(ctx, param, target) -> str:
+def validate_target(ctx, param, target) -> IPv4Address or list[IPv4Address] or str:
     try:
-        IPv4Address(target)
-        return target
+        target = IPv4Address(target)
+        return [str(target)]
     except AddressValueError:
-        try:
-            target = socket.getaddrinfo(target, 0)[0][4][0]
-            return target
-        except:
-            pass
-        raise click.BadParameter('Not correct target')
+        pass
+    try:
+        net = IPv4Network(target)
+        return [str(host) for host in net.hosts()]
+    except ValueError:
+        pass
+    try:
+        target = socket.getaddrinfo(target, 0)[0][4][0]
+        return [target]
+    except socket.gaierror:
+        pass
+    raise click.BadParameter('Not correct target')
 
 
-def resolve_domain_to_ipv4_address(domain: str) -> str:
-    pass
-
-
-def scan_port(target: str, protocol: str, port_number: int) -> None:
+def scan_port(target: str, protocol: str, port_number: int, verbose: bool) -> None:
     try:
         sock = socket.socket(socket.AF_INET, PROTOCOL_SOCKETS[protocol])
         sock.settimeout(SOCKET_TIMEOUT)
@@ -78,21 +86,23 @@ def scan_port(target: str, protocol: str, port_number: int) -> None:
             )
         elif protocol == Protocol.UDP:
             sock.sendto(b'Hello', (target, port_number))
-            click.echo(f'[?] Sending UDP data to {port_number}')
+            if verbose:
+                click.echo(f'[?] Sending UDP data to {port_number}')
         sock.close()
 
     except Exception as e:
-        click.echo(e, err=True)
-        print(f'[-] Port {port_number} is closed')
+        if verbose:
+            click.echo(e, err=True)
+            print(f'[-] Port {port_number} is closed')
 
 
 @click.command()
 @click.option(
     '--target',
-    prompt=True,
     type=click.UNPROCESSED,
     callback=validate_target,
-    help='ip address or domain name',
+    help='ip address/network or domain name',
+    required=True,
 )
 @click.option(
     '--proto',
@@ -101,21 +111,31 @@ def scan_port(target: str, protocol: str, port_number: int) -> None:
     show_choices=True,
     default=['tcp'],
     help='tcp or udp',
+    required=True,
 )
 @click.option(
     '--port',
     type=click.UNPROCESSED,
     callback=validate_port,
-    prompt=True,
     help='80 or 80,443,22 or 40000:50000',
 )
-def run(target, proto, port):
+@click.option(
+    '--verbose',
+    is_flag=True,
+    help='Show more output',
+    default=False,
+)
+def run(target, proto, port, verbose):
     # handle ports
     ports = port
 
-    for protocol in proto:
-        for port_number in ports:
-            scan_port(target, protocol, port_number)
+    for host in target:
+        click.echo(f'[+] Scanning {host}')
+        for protocol in proto:
+            if protocol in [Protocol.TCP, Protocol.UDP] and not ports:
+                raise click.BadArgumentUsage('Specify --port if proto is tcp or udp')
+            for port_number in ports:
+                scan_port(host, protocol, port_number, verbose)
 
 
 if __name__ == '__main__':
